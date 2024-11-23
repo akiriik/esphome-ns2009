@@ -1,5 +1,4 @@
 #include "ns2009.h"
-#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -12,17 +11,21 @@ void NS2009Touchscreen::setup() {
 }
 
 void NS2009Touchscreen::loop() {
-  if (read_touch_point_()) {
-    if (this->raw_z_ > TOUCH_THRESHOLD) {
-      // Map coordinates to screen space
-      float x = (float)(this->raw_x_ - min_x_) / (max_x_ - min_x_) * screen_width_;
-      float y = (float)(this->raw_y_ - min_y_) / (max_y_ - min_y_) * screen_height_;
-      
-      this->send_touch(x, y);
-      ESP_LOGV(TAG, "Touch: x=%f y=%f", x, y);
-    } else {
-      this->send_release();
-    }
+  do {
+    this->raw_z_ = read_register_(NS2009_READ_Z);
+  } while (this->raw_z_ == 0xFFF);  // Filter false readings
+
+  this->touched = (this->raw_z_ > TOUCH_THRESHOLD);
+  
+  if (this->touched) {
+    this->raw_x_ = read_register_(NS2009_READ_X);
+    this->raw_y_ = read_register_(NS2009_READ_Y);
+    
+    // Map raw values to screen coordinates
+    this->x = map(this->raw_x_, 410, 3780, 0, 320);
+    this->y = map(this->raw_y_, 360, 3770, 0, 240);
+    
+    ESP_LOGD(TAG, "Touch detected - X: %d, Y: %d, Z: %d", this->x, this->y, this->raw_z_);
   }
 }
 
@@ -35,23 +38,9 @@ uint16_t NS2009Touchscreen::read_register_(uint8_t reg) {
   return (data[0] << 4) | (data[1] >> 4);
 }
 
-bool NS2009Touchscreen::read_touch_point_() {
-  do {
-    this->raw_z_ = read_register_(NS2009_READ_Z);
-  } while (this->raw_z_ == 0xFFF);  // Filter false readings
-  
-  if (this->raw_z_ > TOUCH_THRESHOLD) {
-    this->raw_x_ = read_register_(NS2009_READ_X);
-    this->raw_y_ = read_register_(NS2009_READ_Y);
-    return true;
-  }
-  return false;
-}
-
 void NS2009Touchscreen::dump_config() {
   ESP_LOGCONFIG(TAG, "NS2009:");
   LOG_I2C_DEVICE(this);
-  ESP_LOGCONFIG(TAG, "  Screen Size: %dx%d", screen_width_, screen_height_);
 }
 
 }  // namespace ns2009
